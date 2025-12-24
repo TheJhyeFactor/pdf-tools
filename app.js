@@ -155,6 +155,9 @@ class PDFPowerTools {
         document.getElementById('save-edited-btn').addEventListener('click', () => {
             this.saveEditedPDF();
         });
+        document.getElementById('edit-bold').addEventListener('click', (e) => {
+            e.currentTarget.classList.toggle('active');
+        });
     }
 
     setupDragAndDrop() {
@@ -986,9 +989,46 @@ class PDFPowerTools {
         canvas.height = viewport.height;
 
         const ctx = canvas.getContext('2d');
+
+        // Render the PDF page as background
         await page.render({ canvasContext: ctx, viewport: viewport }).promise;
 
-        // Render added elements on top
+        // Extract text items if not already done for this page
+        if (!this.editElements.some(el => el.page === this.currentEditPage && el.extracted)) {
+            const textContent = await page.getTextContent();
+
+            textContent.items.forEach((item, index) => {
+                if (!item.str || item.str.trim() === '') return;
+
+                const tx = item.transform;
+                // tx[0] = scaleX, tx[3] = scaleY, tx[4] = x, tx[5] = y
+                const fontSize = Math.abs(tx[3]);
+                const x = tx[4] * 1.5;
+                const y = viewport.height - (tx[5] * 1.5);
+
+                // Measure text width
+                ctx.font = `${fontSize * 1.5}px sans-serif`;
+                const textWidth = ctx.measureText(item.str).width;
+
+                this.editElements.push({
+                    id: `page${this.currentEditPage}-item${index}`,
+                    page: this.currentEditPage,
+                    type: 'text',
+                    text: item.str,
+                    x: x,
+                    y: y,
+                    width: textWidth,
+                    height: fontSize * 1.5,
+                    fontSize: fontSize * 1.5,
+                    color: '#000000',
+                    fontWeight: 'normal',
+                    extracted: true,
+                    modified: false
+                });
+            });
+        }
+
+        // Render all text elements
         this.renderEditElements();
 
         document.getElementById('edit-page-info').textContent =
@@ -999,25 +1039,45 @@ class PDFPowerTools {
         const canvas = document.getElementById('edit-canvas');
         const ctx = canvas.getContext('2d');
 
-        // Render all added elements for this page
-        this.editElements
-            .filter(el => el.page === this.currentEditPage)
-            .forEach(el => {
-                if (el.type === 'text') {
-                    ctx.font = `${el.fontWeight} ${el.fontSize}px Arial`;
-                    ctx.fillStyle = el.color;
-                    ctx.fillText(el.text, el.x, el.y);
+        // Get current page elements
+        const pageElements = this.editElements.filter(el => el.page === this.currentEditPage);
 
-                    // Draw bounding box for selection
-                    if (this.selectedElement === el) {
-                        ctx.strokeStyle = '#2563eb';
-                        ctx.lineWidth = 2;
-                        ctx.setLineDash([5, 5]);
-                        ctx.strokeRect(el.x - 2, el.y - el.height - 2, el.width + 4, el.height + 4);
-                        ctx.setLineDash([]);
-                    }
+        pageElements.forEach(el => {
+            if (el.type === 'text') {
+                // Cover original text with white if modified
+                if (el.modified && el.extracted) {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(el.originalX - 2, el.originalY - el.height - 2, el.width + 4, el.height + 4);
                 }
-            });
+
+                // Draw text
+                ctx.font = `${el.fontWeight} ${el.fontSize}px sans-serif`;
+                ctx.fillStyle = el.color;
+                ctx.fillText(el.text, el.x, el.y);
+
+                // Draw selection box if selected
+                if (this.selectedElement === el) {
+                    ctx.strokeStyle = '#2563eb';
+                    ctx.lineWidth = 3;
+                    ctx.setLineDash([8, 4]);
+                    ctx.strokeRect(el.x - 4, el.y - el.height - 4, el.width + 8, el.height + 8);
+                    ctx.setLineDash([]);
+
+                    // Draw resize handles
+                    const handles = [
+                        { x: el.x - 4, y: el.y - el.height - 4 }, // top-left
+                        { x: el.x + el.width + 4, y: el.y - el.height - 4 }, // top-right
+                        { x: el.x - 4, y: el.y + 4 }, // bottom-left
+                        { x: el.x + el.width + 4, y: el.y + 4 } // bottom-right
+                    ];
+
+                    ctx.fillStyle = '#2563eb';
+                    handles.forEach(handle => {
+                        ctx.fillRect(handle.x - 4, handle.y - 4, 8, 8);
+                    });
+                }
+            }
+        });
     }
 
     setupEditCanvas() {
@@ -1063,12 +1123,26 @@ class PDFPowerTools {
                 const dx = x - startX;
                 const dy = y - startY;
 
+                // Mark as modified and save original position if first move
+                if (!this.selectedElement.modified) {
+                    this.selectedElement.originalX = this.selectedElement.x;
+                    this.selectedElement.originalY = this.selectedElement.y;
+                    this.selectedElement.modified = true;
+                }
+
                 this.selectedElement.x += dx;
                 this.selectedElement.y += dy;
+
+                // Update width measurement
+                const canvas = document.getElementById('edit-canvas');
+                const ctx = canvas.getContext('2d');
+                ctx.font = `${this.selectedElement.fontWeight} ${this.selectedElement.fontSize}px sans-serif`;
+                this.selectedElement.width = ctx.measureText(this.selectedElement.text).width;
 
                 startX = x;
                 startY = y;
 
+                // Clear and redraw
                 this.renderEditPage();
             }
         };
@@ -1100,7 +1174,7 @@ class PDFPowerTools {
     selectElement(element) {
         this.selectedElement = element;
         this.showElementProperties(element);
-        this.renderEditElements(); // Re-render to show selection
+        this.renderEditPage(); // Full re-render to show selection
     }
 
     deselectElement() {
@@ -1140,7 +1214,14 @@ class PDFPowerTools {
         };
 
         this.editElements.push(newElement);
-        this.renderEditPage().then(() => this.renderEditElements());
+
+        // Recalculate accurate width
+        const canvas = document.getElementById('edit-canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.font = `${newElement.fontWeight} ${newElement.fontSize}px sans-serif`;
+        newElement.width = ctx.measureText(newElement.text).width;
+
+        this.renderEditPage();
     }
 
     deleteElement(element) {
@@ -1149,8 +1230,9 @@ class PDFPowerTools {
             this.editElements.splice(index, 1);
             if (this.selectedElement === element) {
                 this.deselectElement();
+            } else {
+                this.renderEditPage();
             }
-            this.renderEditPage().then(() => this.renderEditElements());
         }
     }
 
@@ -1163,13 +1245,39 @@ class PDFPowerTools {
     applyElementChanges() {
         if (!this.selectedElement) return;
 
+        // Mark as modified if not already
+        if (!this.selectedElement.modified) {
+            this.selectedElement.originalX = this.selectedElement.x;
+            this.selectedElement.originalY = this.selectedElement.y;
+            this.selectedElement.modified = true;
+        }
+
+        // Update from property inputs
         this.selectedElement.text = document.getElementById('element-text').value;
         this.selectedElement.x = parseFloat(document.getElementById('element-x').value);
         this.selectedElement.y = parseFloat(document.getElementById('element-y').value);
-        this.selectedElement.width = parseFloat(document.getElementById('element-width').value);
-        this.selectedElement.height = parseFloat(document.getElementById('element-height').value);
 
-        this.renderEditPage().then(() => this.renderEditElements());
+        // Update from toolbar controls
+        const newFontSize = parseInt(document.getElementById('edit-font-size').value);
+        const newColor = document.getElementById('edit-color').value;
+        const isBold = document.getElementById('edit-bold').classList.contains('active');
+
+        this.selectedElement.fontSize = newFontSize;
+        this.selectedElement.color = newColor;
+        this.selectedElement.fontWeight = isBold ? 'bold' : 'normal';
+
+        // Recalculate width and height based on new font size and text
+        const canvas = document.getElementById('edit-canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.font = `${this.selectedElement.fontWeight} ${this.selectedElement.fontSize}px sans-serif`;
+        this.selectedElement.width = ctx.measureText(this.selectedElement.text).width;
+        this.selectedElement.height = this.selectedElement.fontSize;
+
+        // Update the property display
+        document.getElementById('element-width').value = this.selectedElement.width.toFixed(1);
+        document.getElementById('element-height').value = this.selectedElement.height.toFixed(1);
+
+        this.renderEditPage();
     }
 
     setEditMode(mode) {
