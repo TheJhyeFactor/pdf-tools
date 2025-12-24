@@ -8,6 +8,10 @@ class PDFPowerTools {
         this.redactionBoxes = [];
         this.annotations = [];
         this.currentSignature = null;
+        this.editElements = [];
+        this.selectedElement = null;
+        this.editMode = 'select';
+        this.isDragging = false;
 
         this.init();
     }
@@ -124,6 +128,33 @@ class PDFPowerTools {
         document.getElementById('compress-btn').addEventListener('click', () => {
             this.compressPDF();
         });
+
+        // Edit PDF
+        document.getElementById('edit-file-select').addEventListener('change', (e) => {
+            this.loadPDFForEditing(e.target.value);
+        });
+        document.querySelectorAll('.edit-toolbar .toolbar-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                if (btn.dataset.tool) {
+                    this.setEditMode(btn.dataset.tool);
+                }
+            });
+        });
+        document.getElementById('edit-prev').addEventListener('click', () => {
+            this.changeEditPage(-1);
+        });
+        document.getElementById('edit-next').addEventListener('click', () => {
+            this.changeEditPage(1);
+        });
+        document.getElementById('apply-element-changes').addEventListener('click', () => {
+            this.applyElementChanges();
+        });
+        document.getElementById('delete-element').addEventListener('click', () => {
+            this.deleteSelectedElement();
+        });
+        document.getElementById('save-edited-btn').addEventListener('click', () => {
+            this.saveEditedPDF();
+        });
     }
 
     setupDragAndDrop() {
@@ -215,6 +246,7 @@ class PDFPowerTools {
             'split-file-select',
             'redact-file-select',
             'annotate-file-select',
+            'edit-file-select',
             'sign-file-select',
             'ocr-file-select',
             'compress-file-select'
@@ -822,6 +854,311 @@ class PDFPowerTools {
         } catch (error) {
             console.error('Compression error:', error);
             alert('Error compressing PDF: ' + error.message);
+        }
+    }
+
+    // EDIT PDF FUNCTIONALITY
+    async loadPDFForEditing(fileIndex) {
+        if (!fileIndex) return;
+
+        const file = this.loadedFiles[fileIndex];
+        this.currentEditFile = file;
+        this.currentEditPage = 1;
+        this.editElements = [];
+        this.selectedElement = null;
+
+        await this.renderEditPage();
+        this.setupEditCanvas();
+    }
+
+    async renderEditPage() {
+        const canvas = document.getElementById('edit-canvas');
+        const page = await this.currentEditFile.pdf.getPage(this.currentEditPage);
+
+        const viewport = page.getViewport({ scale: 1.5 });
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+
+        // Extract text content for editing
+        const textContent = await page.getTextContent();
+
+        // Create editable text elements from PDF text
+        this.editElements = this.editElements.filter(el => el.page !== this.currentEditPage);
+
+        textContent.items.forEach((item, index) => {
+            const transform = item.transform;
+            this.editElements.push({
+                id: `${this.currentEditPage}-${index}`,
+                page: this.currentEditPage,
+                type: 'text',
+                text: item.str,
+                x: transform[4] * 1.5,
+                y: canvas.height - (transform[5] * 1.5),
+                width: item.width * 1.5,
+                height: item.height * 1.5,
+                fontSize: transform[3] * 1.5,
+                color: '#000000',
+                fontWeight: 'normal'
+            });
+        });
+
+        this.renderEditElements();
+
+        document.getElementById('edit-page-info').textContent =
+            `Page ${this.currentEditPage} of ${this.currentEditFile.pages}`;
+    }
+
+    renderEditElements() {
+        const canvas = document.getElementById('edit-canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Re-render elements on top of PDF
+        this.editElements
+            .filter(el => el.page === this.currentEditPage)
+            .forEach(el => {
+                if (el.type === 'text') {
+                    ctx.font = `${el.fontWeight} ${el.fontSize}px Arial`;
+                    ctx.fillStyle = el.color;
+                    ctx.fillText(el.text, el.x, el.y);
+                }
+            });
+
+        // Show selection if element is selected
+        if (this.selectedElement && this.selectedElement.page === this.currentEditPage) {
+            this.showSelection(this.selectedElement);
+        }
+    }
+
+    setupEditCanvas() {
+        const canvas = document.getElementById('edit-canvas');
+        const overlay = document.getElementById('edit-overlay');
+
+        let startX, startY, isDragging = false;
+
+        canvas.onmousedown = (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            if (this.editMode === 'select') {
+                // Check if clicking on an element
+                const clicked = this.findElementAtPoint(x, y);
+                if (clicked) {
+                    this.selectElement(clicked);
+                    startX = x;
+                    startY = y;
+                    isDragging = true;
+                } else {
+                    this.deselectElement();
+                }
+            } else if (this.editMode === 'text') {
+                // Add new text element
+                this.addTextElement(x, y);
+            } else if (this.editMode === 'delete') {
+                // Delete element at click point
+                const clicked = this.findElementAtPoint(x, y);
+                if (clicked) {
+                    this.deleteElement(clicked);
+                }
+            }
+        };
+
+        canvas.onmousemove = (e) => {
+            if (isDragging && this.selectedElement) {
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+
+                const dx = x - startX;
+                const dy = y - startY;
+
+                this.selectedElement.x += dx;
+                this.selectedElement.y += dy;
+
+                startX = x;
+                startY = y;
+
+                this.renderEditPage().then(() => this.renderEditElements());
+            }
+        };
+
+        canvas.onmouseup = () => {
+            isDragging = false;
+        };
+
+        canvas.onmouseleave = () => {
+            isDragging = false;
+        };
+    }
+
+    findElementAtPoint(x, y) {
+        // Find element at click point (reverse order so top elements are checked first)
+        const elements = this.editElements
+            .filter(el => el.page === this.currentEditPage)
+            .reverse();
+
+        for (const el of elements) {
+            if (x >= el.x && x <= el.x + el.width &&
+                y >= el.y - el.height && y <= el.y) {
+                return el;
+            }
+        }
+        return null;
+    }
+
+    selectElement(element) {
+        this.selectedElement = element;
+        this.showSelection(element);
+        this.showElementProperties(element);
+    }
+
+    deselectElement() {
+        this.selectedElement = null;
+        document.getElementById('selected-element-info').style.display = 'none';
+        this.renderEditPage().then(() => this.renderEditElements());
+    }
+
+    showSelection(element) {
+        // Visual selection will be shown via canvas redraw with highlight
+        const canvas = document.getElementById('edit-canvas');
+        const ctx = canvas.getContext('2d');
+
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.strokeRect(element.x - 2, element.y - element.height - 2, element.width + 4, element.height + 4);
+        ctx.setLineDash([]);
+    }
+
+    showElementProperties(element) {
+        document.getElementById('selected-element-info').style.display = 'block';
+        document.getElementById('element-text').value = element.text || '';
+        document.getElementById('element-x').value = element.x.toFixed(1);
+        document.getElementById('element-y').value = element.y.toFixed(1);
+        document.getElementById('element-width').value = element.width.toFixed(1);
+        document.getElementById('element-height').value = element.height.toFixed(1);
+    }
+
+    addTextElement(x, y) {
+        const text = prompt('Enter text:', 'New Text');
+        if (!text) return;
+
+        const fontSize = parseInt(document.getElementById('edit-font-size').value);
+        const color = document.getElementById('edit-color').value;
+
+        const newElement = {
+            id: `${this.currentEditPage}-new-${Date.now()}`,
+            page: this.currentEditPage,
+            type: 'text',
+            text: text,
+            x: x,
+            y: y,
+            width: text.length * fontSize * 0.6, // Approximate width
+            height: fontSize,
+            fontSize: fontSize,
+            color: color,
+            fontWeight: document.getElementById('edit-bold').classList.contains('active') ? 'bold' : 'normal'
+        };
+
+        this.editElements.push(newElement);
+        this.renderEditPage().then(() => this.renderEditElements());
+    }
+
+    deleteElement(element) {
+        const index = this.editElements.indexOf(element);
+        if (index > -1) {
+            this.editElements.splice(index, 1);
+            if (this.selectedElement === element) {
+                this.deselectElement();
+            }
+            this.renderEditPage().then(() => this.renderEditElements());
+        }
+    }
+
+    deleteSelectedElement() {
+        if (this.selectedElement) {
+            this.deleteElement(this.selectedElement);
+        }
+    }
+
+    applyElementChanges() {
+        if (!this.selectedElement) return;
+
+        this.selectedElement.text = document.getElementById('element-text').value;
+        this.selectedElement.x = parseFloat(document.getElementById('element-x').value);
+        this.selectedElement.y = parseFloat(document.getElementById('element-y').value);
+        this.selectedElement.width = parseFloat(document.getElementById('element-width').value);
+        this.selectedElement.height = parseFloat(document.getElementById('element-height').value);
+
+        this.renderEditPage().then(() => this.renderEditElements());
+    }
+
+    setEditMode(mode) {
+        this.editMode = mode;
+        document.querySelectorAll('.edit-toolbar .toolbar-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tool === mode);
+        });
+    }
+
+    changeEditPage(delta) {
+        const newPage = this.currentEditPage + delta;
+        if (newPage < 1 || newPage > this.currentEditFile.pages) return;
+        this.currentEditPage = newPage;
+        this.selectedElement = null;
+        this.renderEditPage();
+    }
+
+    async saveEditedPDF() {
+        if (this.editElements.length === 0) {
+            alert('No changes to save');
+            return;
+        }
+
+        try {
+            const pdfDoc = await PDFLib.PDFDocument.load(this.currentEditFile.arrayBuffer);
+
+            // Group elements by page
+            const elementsByPage = {};
+            this.editElements.forEach(el => {
+                if (!elementsByPage[el.page]) {
+                    elementsByPage[el.page] = [];
+                }
+                elementsByPage[el.page].push(el);
+            });
+
+            // Add text to each page
+            for (const [pageNum, elements] of Object.entries(elementsByPage)) {
+                const page = pdfDoc.getPage(parseInt(pageNum) - 1);
+                const { height } = page.getSize();
+
+                for (const el of elements) {
+                    if (el.type === 'text') {
+                        // Convert hex color to RGB
+                        const r = parseInt(el.color.substr(1, 2), 16) / 255;
+                        const g = parseInt(el.color.substr(3, 2), 16) / 255;
+                        const b = parseInt(el.color.substr(5, 2), 16) / 255;
+
+                        page.drawText(el.text, {
+                            x: el.x / 1.5,
+                            y: height - (el.y / 1.5),
+                            size: el.fontSize / 1.5,
+                            color: PDFLib.rgb(r, g, b)
+                        });
+                    }
+                }
+            }
+
+            const pdfBytes = await pdfDoc.save();
+            this.downloadPDF(pdfBytes, this.currentEditFile.name.replace('.pdf', '_edited.pdf'));
+
+            alert('Edited PDF saved!');
+
+        } catch (error) {
+            console.error('Edit save error:', error);
+            alert('Error saving edited PDF: ' + error.message);
         }
     }
 

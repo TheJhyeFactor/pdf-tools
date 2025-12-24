@@ -56,6 +56,10 @@
                         <span class="tool-icon">✏️</span>
                         <span>Annotate</span>
                     </button>
+                    <button class="tool-btn" data-tool="edit">
+                        <span class="tool-icon">📝</span>
+                        <span>Edit PDF</span>
+                    </button>
                     <button class="tool-btn" data-tool="sign">
                         <span class="tool-icon">✍️</span>
                         <span>Sign</span>
@@ -268,6 +272,88 @@
                         </div>
 
                         <button class="btn-action" id="save-signed-btn">Save Signed PDF</button>
+                    </div>
+                </section>
+
+                <!-- Edit PDF Tool -->
+                <section class="tool-panel" id="edit-panel">
+                    <h2>Edit PDF Elements</h2>
+                    <div class="tool-content">
+                        <div class="file-selector">
+                            <label>Select PDF to edit:</label>
+                            <select id="edit-file-select" class="file-select">
+                                <option value="">-- Select a file --</option>
+                            </select>
+                        </div>
+
+                        <div class="edit-toolbar">
+                            <button class="toolbar-btn active" data-tool="select" title="Select/Move">
+                                <span>🖱️</span>
+                                <span>Select</span>
+                            </button>
+                            <button class="toolbar-btn" data-tool="text" title="Add Text">
+                                <span>T</span>
+                                <span>Text</span>
+                            </button>
+                            <button class="toolbar-btn" data-tool="delete" title="Delete Element">
+                                <span>🗑️</span>
+                                <span>Delete</span>
+                            </button>
+                            <div class="toolbar-separator"></div>
+                            <label class="toolbar-label">Font Size:</label>
+                            <input type="number" id="edit-font-size" value="12" min="6" max="72" class="toolbar-input">
+                            <label class="toolbar-label">Color:</label>
+                            <input type="color" id="edit-color" value="#000000">
+                            <button class="toolbar-btn" id="edit-bold" title="Bold">
+                                <strong>B</strong>
+                            </button>
+                        </div>
+
+                        <div class="canvas-container" id="edit-container">
+                            <canvas id="edit-canvas"></canvas>
+                            <div class="edit-overlay" id="edit-overlay"></div>
+                            <div class="canvas-controls">
+                                <button class="btn-small" id="edit-prev">← Previous</button>
+                                <span id="edit-page-info">Page 1 of 1</span>
+                                <button class="btn-small" id="edit-next">Next →</button>
+                            </div>
+                        </div>
+
+                        <div class="tool-instructions">
+                            <p><strong>Select Mode:</strong> Click elements to select, drag to move, click outside to deselect</p>
+                            <p><strong>Text Mode:</strong> Click anywhere to add new text</p>
+                            <p><strong>Delete Mode:</strong> Click elements to remove them</p>
+                        </div>
+
+                        <div class="selected-element-info" id="selected-element-info" style="display: none;">
+                            <h3>Selected Element</h3>
+                            <div class="element-properties">
+                                <label>
+                                    Text Content:
+                                    <input type="text" id="element-text" placeholder="Text content">
+                                </label>
+                                <label>
+                                    X Position:
+                                    <input type="number" id="element-x" step="0.1">
+                                </label>
+                                <label>
+                                    Y Position:
+                                    <input type="number" id="element-y" step="0.1">
+                                </label>
+                                <label>
+                                    Width:
+                                    <input type="number" id="element-width" step="0.1">
+                                </label>
+                                <label>
+                                    Height:
+                                    <input type="number" id="element-height" step="0.1">
+                                </label>
+                                <button class="btn-small" id="apply-element-changes">Apply Changes</button>
+                                <button class="btn-small" id="delete-element">Delete Element</button>
+                            </div>
+                        </div>
+
+                        <button class="btn-action" id="save-edited-btn">Save Edited PDF</button>
                     </div>
                 </section>
 
