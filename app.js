@@ -642,6 +642,7 @@ class PDFPowerTools {
         this.currentAnnotationTool = 'text';
 
         await this.renderAnnotatePage();
+        this.setupAnnotateCanvas();
     }
 
     async renderAnnotatePage() {
@@ -655,8 +656,120 @@ class PDFPowerTools {
         const ctx = canvas.getContext('2d');
         await page.render({ canvasContext: ctx, viewport: viewport }).promise;
 
+        // Draw existing annotations for this page
+        this.renderAnnotations();
+
         document.getElementById('annotate-page-info').textContent =
             `Page ${this.currentAnnotatePage} of ${this.currentAnnotateFile.pages}`;
+    }
+
+    renderAnnotations() {
+        const canvas = document.getElementById('annotate-canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Filter annotations for current page
+        const pageAnnotations = this.annotations.filter(a => a.page === this.currentAnnotatePage);
+
+        pageAnnotations.forEach(annot => {
+            if (annot.type === 'rectangle') {
+                ctx.strokeStyle = annot.color;
+                ctx.lineWidth = 3;
+                ctx.strokeRect(annot.x, annot.y, annot.width, annot.height);
+            } else if (annot.type === 'highlight') {
+                ctx.fillStyle = annot.color;
+                ctx.globalAlpha = 0.3;
+                ctx.fillRect(annot.x, annot.y, annot.width, annot.height);
+                ctx.globalAlpha = 1.0;
+            } else if (annot.type === 'text') {
+                ctx.font = '16px sans-serif';
+                ctx.fillStyle = annot.color;
+                ctx.fillText(annot.text, annot.x, annot.y);
+            }
+        });
+    }
+
+    setupAnnotateCanvas() {
+        const canvas = document.getElementById('annotate-canvas');
+        let isDrawing = false;
+        let startX, startY;
+
+        canvas.onmousedown = (e) => {
+            const rect = canvas.getBoundingClientRect();
+            startX = e.clientX - rect.left;
+            startY = e.clientY - rect.top;
+            isDrawing = true;
+
+            // For text annotation, prompt immediately
+            if (this.currentAnnotationTool === 'text') {
+                const text = prompt('Enter annotation text:');
+                if (text) {
+                    this.annotations.push({
+                        page: this.currentAnnotatePage,
+                        type: 'text',
+                        text: text,
+                        x: startX,
+                        y: startY,
+                        color: '#ff0000'
+                    });
+                    this.renderAnnotatePage();
+                }
+                isDrawing = false;
+            }
+        };
+
+        canvas.onmousemove = (e) => {
+            if (!isDrawing) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const currentX = e.clientX - rect.left;
+            const currentY = e.clientY - rect.top;
+
+            // Preview the annotation
+            this.renderAnnotatePage().then(() => {
+                const ctx = canvas.getContext('2d');
+                const width = currentX - startX;
+                const height = currentY - startY;
+
+                if (this.currentAnnotationTool === 'rectangle') {
+                    ctx.strokeStyle = '#ff0000';
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(startX, startY, width, height);
+                } else if (this.currentAnnotationTool === 'highlight') {
+                    ctx.fillStyle = '#ffff00';
+                    ctx.globalAlpha = 0.3;
+                    ctx.fillRect(startX, startY, width, height);
+                    ctx.globalAlpha = 1.0;
+                }
+            });
+        };
+
+        canvas.onmouseup = (e) => {
+            if (!isDrawing || this.currentAnnotationTool === 'text') return;
+            isDrawing = false;
+
+            const rect = canvas.getBoundingClientRect();
+            const endX = e.clientX - rect.left;
+            const endY = e.clientY - rect.top;
+
+            const width = endX - startX;
+            const height = endY - startY;
+
+            // Only save if the annotation is large enough
+            if (Math.abs(width) > 5 && Math.abs(height) > 5) {
+                const annotation = {
+                    page: this.currentAnnotatePage,
+                    type: this.currentAnnotationTool,
+                    x: Math.min(startX, endX),
+                    y: Math.min(startY, endY),
+                    width: Math.abs(width),
+                    height: Math.abs(height),
+                    color: this.currentAnnotationTool === 'highlight' ? '#ffff00' : '#ff0000'
+                };
+
+                this.annotations.push(annotation);
+                this.renderAnnotatePage();
+            }
+        };
     }
 
     setAnnotationTool(tool) {
@@ -674,12 +787,72 @@ class PDFPowerTools {
     }
 
     clearAnnotations() {
-        this.annotations = [];
+        this.annotations = this.annotations.filter(a => a.page !== this.currentAnnotatePage);
         this.renderAnnotatePage();
     }
 
     async saveAnnotatedPDF() {
-        alert('Annotation save feature - would render annotations to PDF');
+        if (this.annotations.length === 0) {
+            alert('No annotations to save');
+            return;
+        }
+
+        try {
+            const pdfDoc = await PDFLib.PDFDocument.load(this.currentAnnotateFile.arrayBuffer);
+
+            // Group annotations by page
+            const annotsByPage = {};
+            this.annotations.forEach(annot => {
+                if (!annotsByPage[annot.page]) {
+                    annotsByPage[annot.page] = [];
+                }
+                annotsByPage[annot.page].push(annot);
+            });
+
+            // Draw annotations on each page
+            for (const [pageNum, annots] of Object.entries(annotsByPage)) {
+                const page = pdfDoc.getPage(parseInt(pageNum) - 1);
+                const { height } = page.getSize();
+
+                for (const annot of annots) {
+                    if (annot.type === 'rectangle') {
+                        page.drawRectangle({
+                            x: annot.x / 1.5,
+                            y: height - (annot.y / 1.5) - (annot.height / 1.5),
+                            width: annot.width / 1.5,
+                            height: annot.height / 1.5,
+                            borderColor: PDFLib.rgb(1, 0, 0),
+                            borderWidth: 2
+                        });
+                    } else if (annot.type === 'highlight') {
+                        page.drawRectangle({
+                            x: annot.x / 1.5,
+                            y: height - (annot.y / 1.5) - (annot.height / 1.5),
+                            width: annot.width / 1.5,
+                            height: annot.height / 1.5,
+                            color: PDFLib.rgb(1, 1, 0),
+                            opacity: 0.3
+                        });
+                    } else if (annot.type === 'text') {
+                        page.drawText(annot.text, {
+                            x: annot.x / 1.5,
+                            y: height - (annot.y / 1.5),
+                            size: 12,
+                            color: PDFLib.rgb(1, 0, 0)
+                        });
+                    }
+                }
+            }
+
+            const pdfBytes = await pdfDoc.save();
+            this.downloadPDF(pdfBytes, this.currentAnnotateFile.name.replace('.pdf', '_annotated.pdf'));
+
+            alert('Annotated PDF saved!');
+
+        } catch (error) {
+            console.error('Annotation save error:', error);
+            alert('Error saving annotated PDF: ' + error.message);
+        }
     }
 
     // SIGNATURE FUNCTIONALITY
@@ -1017,13 +1190,16 @@ class PDFPowerTools {
                     text: item.str,
                     x: x,
                     y: y,
+                    originalX: x,  // Save original position immediately
+                    originalY: y,
                     width: textWidth,
                     height: fontSize * 1.5,
                     fontSize: fontSize * 1.5,
                     color: '#000000',
                     fontWeight: 'normal',
                     extracted: true,
-                    modified: false
+                    modified: false,
+                    deleted: false
                 });
             });
         }
@@ -1039,8 +1215,8 @@ class PDFPowerTools {
         const canvas = document.getElementById('edit-canvas');
         const ctx = canvas.getContext('2d');
 
-        // Get current page elements
-        const pageElements = this.editElements.filter(el => el.page === this.currentEditPage);
+        // Get current page elements (exclude deleted)
+        const pageElements = this.editElements.filter(el => el.page === this.currentEditPage && !el.deleted);
 
         pageElements.forEach(el => {
             if (el.type === 'text') {
@@ -1159,7 +1335,7 @@ class PDFPowerTools {
     findElementAtPoint(x, y) {
         // Find element at click point (reverse order so top elements are checked first)
         const elements = this.editElements
-            .filter(el => el.page === this.currentEditPage)
+            .filter(el => el.page === this.currentEditPage && !el.deleted)
             .reverse();
 
         for (const el of elements) {
@@ -1225,14 +1401,12 @@ class PDFPowerTools {
     }
 
     deleteElement(element) {
-        const index = this.editElements.indexOf(element);
-        if (index > -1) {
-            this.editElements.splice(index, 1);
-            if (this.selectedElement === element) {
-                this.deselectElement();
-            } else {
-                this.renderEditPage();
-            }
+        // Mark as deleted instead of removing (so we can white-out in PDF)
+        element.deleted = true;
+        if (this.selectedElement === element) {
+            this.deselectElement();
+        } else {
+            this.renderEditPage();
         }
     }
 
@@ -1313,13 +1487,28 @@ class PDFPowerTools {
                 elementsByPage[el.page].push(el);
             });
 
-            // Add text to each page
+            // Process each page
             for (const [pageNum, elements] of Object.entries(elementsByPage)) {
                 const page = pdfDoc.getPage(parseInt(pageNum) - 1);
                 const { height } = page.getSize();
 
+                // STEP 1: White-out original positions for modified/deleted extracted text
                 for (const el of elements) {
-                    if (el.type === 'text') {
+                    if (el.type === 'text' && el.extracted && (el.modified || el.deleted)) {
+                        // Draw white rectangle over original position
+                        page.drawRectangle({
+                            x: el.originalX / 1.5,
+                            y: height - (el.originalY / 1.5),
+                            width: (el.width + 8) / 1.5,
+                            height: (el.height + 8) / 1.5,
+                            color: PDFLib.rgb(1, 1, 1)  // White
+                        });
+                    }
+                }
+
+                // STEP 2: Draw new/modified text (skip deleted elements)
+                for (const el of elements) {
+                    if (el.type === 'text' && !el.deleted) {
                         // Convert hex color to RGB
                         const r = parseInt(el.color.substr(1, 2), 16) / 255;
                         const g = parseInt(el.color.substr(3, 2), 16) / 255;
