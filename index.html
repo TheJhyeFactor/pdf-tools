@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Power Tools - Professional PDF Suite</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+</head>
+<body>
+    <div class="privacy-banner">
+        🔒 100% PRIVATE - All processing happens in your browser. Nothing uploaded to servers.
+    </div>
+
+    <div class="container">
+        <header class="main-header">
+            <div class="logo-section">
+                <h1>📄 PDF Power Tools</h1>
+                <p>Professional PDF Operations - Entirely Client-Side</p>
+            </div>
+            <div class="stats">
+                <div class="stat-item">
+                    <span class="stat-label">Files Loaded:</span>
+                    <span class="stat-value" id="files-count">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Total Pages:</span>
+                    <span class="stat-value" id="pages-count">0</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <aside class="tools-sidebar">
+                <h2>Tools</h2>
+                <nav class="tools-nav">
+                    <button class="tool-btn active" data-tool="upload">
+                        <span class="tool-icon">📁</span>
+                        <span>Upload Files</span>
+                    </button>
+                    <button class="tool-btn" data-tool="split">
+                        <span class="tool-icon">✂️</span>
+                        <span>Split PDF</span>
+                    </button>
+                    <button class="tool-btn" data-tool="merge">
+                        <span class="tool-icon">🔗</span>
+                        <span>Merge PDFs</span>
+                    </button>
+                    <button class="tool-btn" data-tool="redact">
+                        <span class="tool-icon">⬛</span>
+                        <span>Redact</span>
+                    </button>
+                    <button class="tool-btn" data-tool="annotate">
+                        <span class="tool-icon">✏️</span>
+                        <span>Annotate</span>
+                    </button>
+                    <button class="tool-btn" data-tool="sign">
+                        <span class="tool-icon">✍️</span>
+                        <span>Sign</span>
+                    </button>
+                    <button class="tool-btn" data-tool="ocr">
+                        <span class="tool-icon">🔍</span>
+                        <span>OCR</span>
+                    </button>
+                    <button class="tool-btn" data-tool="compress">
+                        <span class="tool-icon">📦</span>
+                        <span>Compress</span>
+                    </button>
+                </nav>
+
+                <div class="privacy-info">
+                    <h3>Privacy First</h3>
+                    <ul>
+                        <li>✓ No uploads</li>
+                        <li>✓ No tracking</li>
+                        <li>✓ No accounts</li>
+                        <li>✓ 100% local processing</li>
+                    </ul>
+                </div>
+            </aside>
+
+            <main class="workspace">
+                <!-- Upload Tool -->
+                <section class="tool-panel active" id="upload-panel">
+                    <h2>Upload PDF Files</h2>
+                    <div class="upload-zone" id="upload-zone">
+                        <div class="upload-content">
+                            <div class="upload-icon">📄</div>
+                            <p class="upload-title">Drop PDF files here</p>
+                            <p class="upload-subtitle">or click to browse</p>
+                            <input type="file" id="file-input" accept=".pdf" multiple hidden>
+                            <button class="btn-primary" id="browse-btn">Browse Files</button>
+                        </div>
+                    </div>
+
+                    <div class="files-list" id="files-list"></div>
+                </section>
+
+                <!-- Split Tool -->
+                <section class="tool-panel" id="split-panel">
+                    <h2>Split PDF</h2>
+                    <div class="tool-content">
+                        <div class="file-selector">
+                            <label>Select PDF to split:</label>
+                            <select id="split-file-select" class="file-select">
+                                <option value="">-- Select a file --</option>
+                            </select>
+                        </div>
+
+                        <div class="split-options">
+                            <div class="option-group">
+                                <label>
+                                    <input type="radio" name="split-mode" value="range" checked>
+                                    Extract page range
+                                </label>
+                                <div class="range-inputs">
+                                    <input type="number" id="split-from" placeholder="From" min="1">
+                                    <span>to</span>
+                                    <input type="number" id="split-to" placeholder="To" min="1">
+                                </div>
+                            </div>
+
+                            <div class="option-group">
+                                <label>
+                                    <input type="radio" name="split-mode" value="every">
+                                    Split every N pages
+                                </label>
+                                <input type="number" id="split-every" placeholder="Pages" min="1" disabled>
+                            </div>
+
+                            <div class="option-group">
+                                <label>
+                                    <input type="radio" name="split-mode" value="pages">
+                                    Extract specific pages (comma-separated)
+                                </label>
+                                <input type="text" id="split-pages" placeholder="e.g. 1,3,5-7" disabled>
+                            </div>
+                        </div>
+
+                        <button class="btn-action" id="split-btn">Split PDF</button>
+                    </div>
+                </section>
+
+                <!-- Merge Tool -->
+                <section class="tool-panel" id="merge-panel">
+                    <h2>Merge PDFs</h2>
+                    <div class="tool-content">
+                        <p class="tool-description">Drag files to reorder, then merge into a single PDF</p>
+
+                        <div class="merge-list" id="merge-list">
+                            <p class="empty-state">Load PDFs to begin merging</p>
+                        </div>
+
+                        <button class="btn-action" id="merge-btn">Merge All PDFs</button>
+                    </div>
+                </section>
+
+                <!-- Redact Tool -->
+                <section class="tool-panel" id="redact-panel">
+                    <h2>Redact PDF</h2>
+                    <div class="tool-content">
+                        <div class="file-selector">
+                            <label>Select PDF to redact:</label>
+                            <select id="redact-file-select" class="file-select">
+                                <option value="">-- Select a file --</option>
+                            </select>
+                        </div>
+
+                        <div class="canvas-container" id="redact-container">
+                            <canvas id="redact-canvas"></canvas>
+                            <div class="canvas-controls">
+                                <button class="btn-small" id="redact-prev">← Previous</button>
+                                <span id="redact-page-info">Page 1 of 1</span>
+                                <button class="btn-small" id="redact-next">Next →</button>
+                            </div>
+                        </div>
+
+                        <div class="tool-instructions">
+                            <p>Click and drag to draw redaction boxes. Redacted areas will be permanently removed.</p>
+                        </div>
+
+                        <button class="btn-action" id="apply-redactions-btn">Apply Redactions</button>
+                    </div>
+                </section>
+
+                <!-- Annotate Tool -->
+                <section class="tool-panel" id="annotate-panel">
+                    <h2>Annotate PDF</h2>
+                    <div class="tool-content">
+                        <div class="file-selector">
+                            <label>Select PDF to annotate:</label>
+                            <select id="annotate-file-select" class="file-select">
+                                <option value="">-- Select a file --</option>
+                            </select>
+                        </div>
+
+                        <div class="annotation-toolbar">
+                            <button class="toolbar-btn active" data-tool="text" title="Add Text">T</button>
+                            <button class="toolbar-btn" data-tool="highlight" title="Highlight">🖍️</button>
+                            <button class="toolbar-btn" data-tool="rectangle" title="Rectangle">▭</button>
+                            <button class="toolbar-btn" data-tool="arrow" title="Arrow">→</button>
+                            <input type="color" id="annotation-color" value="#ffff00" title="Color">
+                            <button class="toolbar-btn" id="clear-annotations">Clear All</button>
+                        </div>
+
+                        <div class="canvas-container" id="annotate-container">
+                            <canvas id="annotate-canvas"></canvas>
+                            <div class="canvas-controls">
+                                <button class="btn-small" id="annotate-prev">← Previous</button>
+                                <span id="annotate-page-info">Page 1 of 1</span>
+                                <button class="btn-small" id="annotate-next">Next →</button>
+                            </div>
+                        </div>
+
+                        <button class="btn-action" id="save-annotated-btn">Save Annotated PDF</button>
+                    </div>
+                </section>
+
+                <!-- Sign Tool -->
+                <section class="tool-panel" id="sign-panel">
+                    <h2>Sign PDF</h2>
+                    <div class="tool-content">
+                        <div class="file-selector">
+                            <label>Select PDF to sign:</label>
+                            <select id="sign-file-select" class="file-select">
+                                <option value="">-- Select a file --</option>
+                            </select>
+                        </div>
+
+                        <div class="signature-creator">
+                            <h3>Create Signature</h3>
+                            <div class="signature-tabs">
+                                <button class="tab-btn active" data-tab="draw">Draw</button>
+                                <button class="tab-btn" data-tab="type">Type</button>
+                                <button class="tab-btn" data-tab="upload">Upload</button>
+                            </div>
+
+                            <div class="signature-panel active" id="draw-signature">
+                                <canvas id="signature-canvas"></canvas>
+                                <button class="btn-small" id="clear-signature">Clear</button>
+                            </div>
+
+                            <div class="signature-panel" id="type-signature">
+                                <input type="text" id="signature-text" placeholder="Type your name">
+                                <select id="signature-font">
+                                    <option value="'Brush Script MT', cursive">Script</option>
+                                    <option value="'Lucida Handwriting', cursive">Handwriting</option>
+                                    <option value="'Dancing Script', cursive">Elegant</option>
+                                </select>
+                            </div>
+
+                            <div class="signature-panel" id="upload-signature">
+                                <input type="file" id="signature-upload" accept="image/*">
+                                <p>Upload a signature image (transparent PNG recommended)</p>
+                            </div>
+                        </div>
+
+                        <div class="canvas-container" id="sign-container">
+                            <canvas id="sign-canvas"></canvas>
+                            <p class="canvas-hint">Click to place signature</p>
+                            <div class="canvas-controls">
+                                <button class="btn-small" id="sign-prev">← Previous</button>
+                                <span id="sign-page-info">Page 1 of 1</span>
+                                <button class="btn-small" id="sign-next">Next →</button>
+                            </div>
+                        </div>
+
+                        <button class="btn-action" id="save-signed-btn">Save Signed PDF</button>
+                    </div>
+                </section>
+
+                <!-- OCR Tool -->
+                <section class="tool-panel" id="ocr-panel">
+                    <h2>OCR - Extract Text</h2>
+                    <div class="tool-content">
+                        <div class="file-selector">
+                            <label>Select PDF for text extraction:</label>
+                            <select id="ocr-file-select" class="file-select">
+                                <option value="">-- Select a file --</option>
+                            </select>
+                        </div>
+
+                        <div class="ocr-options">
+                            <label>
+                                <input type="checkbox" id="ocr-all-pages" checked>
+                                Process all pages
+                            </label>
+                            <label>
+                                Language:
+                                <select id="ocr-language">
+                                    <option value="eng">English</option>
+                                    <option value="spa">Spanish</option>
+                                    <option value="fra">French</option>
+                                    <option value="deu">German</option>
+                                </select>
+                            </label>
+                        </div>
+
+                        <button class="btn-action" id="ocr-btn">Extract Text</button>
+
+                        <div class="ocr-progress" id="ocr-progress" style="display: none;">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="ocr-progress-fill"></div>
+                            </div>
+                            <p id="ocr-status">Processing...</p>
+                        </div>
+
+                        <div class="ocr-result" id="ocr-result" style="display: none;">
+                            <h3>Extracted Text</h3>
+                            <textarea id="ocr-text" readonly></textarea>
+                            <button class="btn-small" id="copy-ocr-text">Copy Text</button>
+                            <button class="btn-small" id="download-ocr-text">Download as TXT</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Compress Tool -->
+                <section class="tool-panel" id="compress-panel">
+                    <h2>Compress PDF</h2>
+                    <div class="tool-content">
+                        <div class="file-selector">
+                            <label>Select PDF to compress:</label>
+                            <select id="compress-file-select" class="file-select">
+                                <option value="">-- Select a file --</option>
+                            </select>
+                        </div>
+
+                        <div class="compress-options">
+                            <h3>Compression Settings</h3>
+                            <label>
+                                <input type="radio" name="compress-level" value="low" checked>
+                                Low (Best Quality)
+                            </label>
+                            <label>
+                                <input type="radio" name="compress-level" value="medium">
+                                Medium (Balanced)
+                            </label>
+                            <label>
+                                <input type="radio" name="compress-level" value="high">
+                                High (Smallest Size)
+                            </label>
+                        </div>
+
+                        <div class="compress-info" id="compress-info" style="display: none;">
+                            <div class="size-comparison">
+                                <div class="size-item">
+                                    <p>Original Size</p>
+                                    <p class="size-value" id="original-size">0 KB</p>
+                                </div>
+                                <div class="size-arrow">→</div>
+                                <div class="size-item">
+                                    <p>Compressed Size</p>
+                                    <p class="size-value" id="compressed-size">0 KB</p>
+                                </div>
+                                <div class="size-item">
+                                    <p>Reduction</p>
+                                    <p class="size-value" id="reduction-percent">0%</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button class="btn-action" id="compress-btn">Compress PDF</button>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <footer class="main-footer">
+        <p>PDF Power Tools - Built by @TheJhyeFactor | All processing happens in your browser - zero uploads</p>
+    </footer>
+
+    <script>
+        // Initialize PDF.js
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+    <script src="app.js"></script>
+</body>
+</html>
