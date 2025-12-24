@@ -520,8 +520,12 @@ class PDFPowerTools {
         this.redactionBoxes
             .filter(box => box.page === this.currentRedactPage)
             .forEach(box => {
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
                 ctx.fillRect(box.x, box.y, box.width, box.height);
+                // Draw border to make it more visible
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(box.x, box.y, box.width, box.height);
             });
 
         document.getElementById('redact-page-info').textContent =
@@ -549,8 +553,12 @@ class PDFPowerTools {
 
             this.renderRedactPage().then(() => {
                 const ctx = canvas.getContext('2d');
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
                 ctx.fillRect(startX, startY, currentX - startX, currentY - startY);
+                // Draw border for preview
+                ctx.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(startX, startY, currentX - startX, currentY - startY);
             });
         };
 
@@ -725,8 +733,10 @@ class PDFPowerTools {
         const file = this.loadedFiles[fileIndex];
         this.currentSignFile = file;
         this.currentSignPage = 1;
+        this.signaturePosition = null;
 
         await this.renderSignPage();
+        this.setupSignCanvas();
     }
 
     async renderSignPage() {
@@ -740,8 +750,64 @@ class PDFPowerTools {
         const ctx = canvas.getContext('2d');
         await page.render({ canvasContext: ctx, viewport: viewport }).promise;
 
+        // Redraw signature if placed
+        if (this.signaturePosition && this.signaturePosition.page === this.currentSignPage) {
+            this.drawSignatureOnCanvas(ctx, this.signaturePosition.x, this.signaturePosition.y);
+        }
+
         document.getElementById('sign-page-info').textContent =
             `Page ${this.currentSignPage} of ${this.currentSignFile.pages}`;
+    }
+
+    setupSignCanvas() {
+        const canvas = document.getElementById('sign-canvas');
+
+        canvas.onclick = (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            // Get signature from canvas
+            const sigCanvas = document.getElementById('signature-canvas');
+            const sigText = document.getElementById('signature-text').value;
+
+            if (sigCanvas.getContext('2d').getImageData(0, 0, sigCanvas.width, sigCanvas.height).data.some(channel => channel !== 0)) {
+                // Has drawn signature
+                this.signaturePosition = {
+                    page: this.currentSignPage,
+                    x: x,
+                    y: y,
+                    source: 'canvas'
+                };
+                this.renderSignPage();
+            } else if (sigText) {
+                // Has typed signature
+                this.signaturePosition = {
+                    page: this.currentSignPage,
+                    x: x,
+                    y: y,
+                    source: 'text',
+                    text: sigText,
+                    font: document.getElementById('signature-font').value
+                };
+                this.renderSignPage();
+            } else {
+                alert('Please create a signature first (draw, type, or upload)');
+            }
+        };
+    }
+
+    drawSignatureOnCanvas(ctx, x, y) {
+        if (!this.signaturePosition) return;
+
+        if (this.signaturePosition.source === 'canvas') {
+            const sigCanvas = document.getElementById('signature-canvas');
+            ctx.drawImage(sigCanvas, x, y, 150, 50);
+        } else if (this.signaturePosition.source === 'text') {
+            ctx.font = `30px ${this.signaturePosition.font}`;
+            ctx.fillStyle = '#000';
+            ctx.fillText(this.signaturePosition.text, x, y);
+        }
     }
 
     changeSignPage(delta) {
@@ -752,7 +818,47 @@ class PDFPowerTools {
     }
 
     async saveSignedPDF() {
-        alert('Signature save feature - would add signature to PDF');
+        if (!this.signaturePosition) {
+            alert('Please place a signature first');
+            return;
+        }
+
+        try {
+            const pdfDoc = await PDFLib.PDFDocument.load(this.currentSignFile.arrayBuffer);
+            const page = pdfDoc.getPage(this.signaturePosition.page - 1);
+            const { height } = page.getSize();
+
+            if (this.signaturePosition.source === 'canvas') {
+                // Convert signature canvas to PNG
+                const sigCanvas = document.getElementById('signature-canvas');
+                const pngDataUrl = sigCanvas.toDataURL('image/png');
+                const pngImageBytes = await fetch(pngDataUrl).then(res => res.arrayBuffer());
+                const pngImage = await pdfDoc.embedPng(pngImageBytes);
+
+                page.drawImage(pngImage, {
+                    x: this.signaturePosition.x / 1.5,
+                    y: height - (this.signaturePosition.y / 1.5) - 33,
+                    width: 100,
+                    height: 33
+                });
+            } else if (this.signaturePosition.source === 'text') {
+                page.drawText(this.signaturePosition.text, {
+                    x: this.signaturePosition.x / 1.5,
+                    y: height - (this.signaturePosition.y / 1.5),
+                    size: 20,
+                    color: PDFLib.rgb(0, 0, 0)
+                });
+            }
+
+            const pdfBytes = await pdfDoc.save();
+            this.downloadPDF(pdfBytes, this.currentSignFile.name.replace('.pdf', '_signed.pdf'));
+
+            alert('Signed PDF saved!');
+
+        } catch (error) {
+            console.error('Signature save error:', error);
+            alert('Error saving signed PDF: ' + error.message);
+        }
     }
 
     // OCR FUNCTIONALITY
@@ -882,29 +988,7 @@ class PDFPowerTools {
         const ctx = canvas.getContext('2d');
         await page.render({ canvasContext: ctx, viewport: viewport }).promise;
 
-        // Extract text content for editing
-        const textContent = await page.getTextContent();
-
-        // Create editable text elements from PDF text
-        this.editElements = this.editElements.filter(el => el.page !== this.currentEditPage);
-
-        textContent.items.forEach((item, index) => {
-            const transform = item.transform;
-            this.editElements.push({
-                id: `${this.currentEditPage}-${index}`,
-                page: this.currentEditPage,
-                type: 'text',
-                text: item.str,
-                x: transform[4] * 1.5,
-                y: canvas.height - (transform[5] * 1.5),
-                width: item.width * 1.5,
-                height: item.height * 1.5,
-                fontSize: transform[3] * 1.5,
-                color: '#000000',
-                fontWeight: 'normal'
-            });
-        });
-
+        // Render added elements on top
         this.renderEditElements();
 
         document.getElementById('edit-page-info').textContent =
@@ -915,7 +999,7 @@ class PDFPowerTools {
         const canvas = document.getElementById('edit-canvas');
         const ctx = canvas.getContext('2d');
 
-        // Re-render elements on top of PDF
+        // Render all added elements for this page
         this.editElements
             .filter(el => el.page === this.currentEditPage)
             .forEach(el => {
@@ -923,13 +1007,17 @@ class PDFPowerTools {
                     ctx.font = `${el.fontWeight} ${el.fontSize}px Arial`;
                     ctx.fillStyle = el.color;
                     ctx.fillText(el.text, el.x, el.y);
+
+                    // Draw bounding box for selection
+                    if (this.selectedElement === el) {
+                        ctx.strokeStyle = '#2563eb';
+                        ctx.lineWidth = 2;
+                        ctx.setLineDash([5, 5]);
+                        ctx.strokeRect(el.x - 2, el.y - el.height - 2, el.width + 4, el.height + 4);
+                        ctx.setLineDash([]);
+                    }
                 }
             });
-
-        // Show selection if element is selected
-        if (this.selectedElement && this.selectedElement.page === this.currentEditPage) {
-            this.showSelection(this.selectedElement);
-        }
     }
 
     setupEditCanvas() {
@@ -981,7 +1069,7 @@ class PDFPowerTools {
                 startX = x;
                 startY = y;
 
-                this.renderEditPage().then(() => this.renderEditElements());
+                this.renderEditPage();
             }
         };
 
@@ -1011,26 +1099,14 @@ class PDFPowerTools {
 
     selectElement(element) {
         this.selectedElement = element;
-        this.showSelection(element);
         this.showElementProperties(element);
+        this.renderEditElements(); // Re-render to show selection
     }
 
     deselectElement() {
         this.selectedElement = null;
         document.getElementById('selected-element-info').style.display = 'none';
-        this.renderEditPage().then(() => this.renderEditElements());
-    }
-
-    showSelection(element) {
-        // Visual selection will be shown via canvas redraw with highlight
-        const canvas = document.getElementById('edit-canvas');
-        const ctx = canvas.getContext('2d');
-
-        ctx.strokeStyle = '#2563eb';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([5, 5]);
-        ctx.strokeRect(element.x - 2, element.y - element.height - 2, element.width + 4, element.height + 4);
-        ctx.setLineDash([]);
+        this.renderEditPage();
     }
 
     showElementProperties(element) {
