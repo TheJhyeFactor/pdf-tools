@@ -213,6 +213,7 @@ body {
     background: radial-gradient(circle, rgba(37, 99, 235, 0.05) 0%, transparent 70%);
     opacity: 0;
     transition: opacity 0.3s;
+    pointer-events: none;
 }
 
 .upload-zone:hover::before,
@@ -310,10 +311,39 @@ body {
 .btn-small:hover {
     background: var(--bg-primary);
     border-color: var(--primary);
+    box-shadow: var(--shadow);
 }
 
 .files-list {
     margin-top: 30px;
+}
+
+.cache-controls {
+    margin-top: 30px;
+    padding: 20px;
+    background: linear-gradient(135deg, #fef2f2, #ffffff);
+    border-radius: 12px;
+    border: 2px solid #fee2e2;
+    text-align: center;
+}
+
+.cache-controls p {
+    color: var(--text-secondary);
+    margin-bottom: 15px;
+    font-size: 0.95em;
+    font-weight: 500;
+}
+
+#clear-cache-btn {
+    background: linear-gradient(135deg, var(--danger), #dc2626) !important;
+    color: white !important;
+    border-color: var(--danger) !important;
+}
+
+#clear-cache-btn:hover {
+    background: linear-gradient(135deg, #dc2626, #b91c1c) !important;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4) !important;
 }
 
 .file-item {

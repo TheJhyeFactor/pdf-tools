@@ -12,14 +12,130 @@ class PDFPowerTools {
         this.selectedElement = null;
         this.editMode = 'select';
         this.isDragging = false;
+        this.db = null;
 
         this.init();
     }
 
-    init() {
+    async init() {
+        await this.initIndexedDB();
+        await this.loadCachedFiles();
         this.setupEventListeners();
         this.setupDragAndDrop();
         this.initializeSignatureCanvas();
+    }
+
+    async initIndexedDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open('PDFPowerToolsDB', 1);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => {
+                this.db = request.result;
+                resolve();
+            };
+
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains('pdfs')) {
+                    db.createObjectStore('pdfs', { keyPath: 'id' });
+                }
+            };
+        });
+    }
+
+    async savePDFToCache(fileData) {
+        if (!this.db) return;
+
+        try {
+            const transaction = this.db.transaction(['pdfs'], 'readwrite');
+            const store = transaction.objectStore('pdfs');
+
+            // Store the file data
+            const cacheData = {
+                id: fileData.id,
+                name: fileData.name,
+                size: fileData.size,
+                pages: fileData.pages,
+                arrayBuffer: fileData.arrayBuffer,
+                timestamp: Date.now()
+            };
+
+            await store.put(cacheData);
+        } catch (error) {
+            console.error('Error saving to cache:', error);
+        }
+    }
+
+    async loadCachedFiles() {
+        if (!this.db) return;
+
+        try {
+            const transaction = this.db.transaction(['pdfs'], 'readonly');
+            const store = transaction.objectStore('pdfs');
+            const request = store.getAll();
+
+            request.onsuccess = async () => {
+                const cachedFiles = request.result;
+
+                for (const cached of cachedFiles) {
+                    try {
+                        const pdf = await pdfjsLib.getDocument(cached.arrayBuffer).promise;
+
+                        const fileData = {
+                            id: cached.id,
+                            name: cached.name,
+                            size: cached.size,
+                            pages: cached.pages,
+                            arrayBuffer: cached.arrayBuffer,
+                            pdf: pdf
+                        };
+
+                        this.loadedFiles.push(fileData);
+                    } catch (error) {
+                        console.error('Error loading cached PDF:', error);
+                    }
+                }
+
+                this.updateFilesList();
+                this.updateStats();
+                this.updateFileSelectors();
+            };
+        } catch (error) {
+            console.error('Error loading cached files:', error);
+        }
+    }
+
+    async clearCache() {
+        if (!this.db) return;
+
+        try {
+            const transaction = this.db.transaction(['pdfs'], 'readwrite');
+            const store = transaction.objectStore('pdfs');
+            await store.clear();
+
+            this.loadedFiles = [];
+            this.updateFilesList();
+            this.updateStats();
+            this.updateFileSelectors();
+
+            alert('Cache cleared! All PDFs removed.');
+        } catch (error) {
+            console.error('Error clearing cache:', error);
+            alert('Error clearing cache: ' + error.message);
+        }
+    }
+
+    async removePDFFromCache(id) {
+        if (!this.db) return;
+
+        try {
+            const transaction = this.db.transaction(['pdfs'], 'readwrite');
+            const store = transaction.objectStore('pdfs');
+            await store.delete(id);
+        } catch (error) {
+            console.error('Error removing from cache:', error);
+        }
     }
 
     setupEventListeners() {
@@ -36,6 +152,11 @@ class PDFPowerTools {
         });
         document.getElementById('file-input').addEventListener('change', (e) => {
             this.handleFiles(e.target.files);
+        });
+        document.getElementById('clear-cache-btn').addEventListener('click', () => {
+            if (confirm('Are you sure you want to clear all cached PDFs? This cannot be undone.')) {
+                this.clearCache();
+            }
         });
 
         // Split
@@ -196,6 +317,9 @@ class PDFPowerTools {
             };
 
             this.loadedFiles.push(fileData);
+
+            // Save to cache
+            await this.savePDFToCache(fileData);
         }
 
         this.updateFilesList();
@@ -231,8 +355,9 @@ class PDFPowerTools {
         });
     }
 
-    removeFile(id) {
+    async removeFile(id) {
         this.loadedFiles = this.loadedFiles.filter(f => f.id !== id);
+        await this.removePDFFromCache(id);
         this.updateFilesList();
         this.updateStats();
         this.updateFileSelectors();
