@@ -1,5 +1,10 @@
 # PDF Power Tools
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Try%20Now-success?style=for-the-badge)](https://thejhyefactor.github.io/pdf-tools/)
+[![GitHub Pages](https://img.shields.io/badge/Deployed%20on-GitHub%20Pages-blue?style=for-the-badge&logo=github)](https://thejhyefactor.github.io/pdf-tools/)
+
+**🔗 Live Demo:** [https://thejhyefactor.github.io/pdf-tools/](https://thejhyefactor.github.io/pdf-tools/)
+
 A professional-grade PDF manipulation suite that runs **entirely in your browser**. No uploads, no servers, no tracking — complete privacy.
 
 ## 🚀 WOW Demo
